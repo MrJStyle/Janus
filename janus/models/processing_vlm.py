@@ -305,7 +305,9 @@ class VLChatProcessor(ProcessorMixin):
         )
 
         # load images
-        images_outputs = self.image_processor(images, return_tensors="pt")
+        # {"pixel_values": images_tensor}
+        # images_tensor: [B, C, H, W]
+        images_outputs: Dict[str, torch.Tensor] = self.image_processor(images, return_tensors="pt")
 
         prepare = VLChatProcessorOutput(
             sft_format=sft_format,

@@ -16,11 +16,14 @@
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+from typing import List
 
+import PIL.Image
 import torch
 from transformers import AutoModelForCausalLM
 
 from janus.models import MultiModalityCausalLM, VLChatProcessor
+from janus.models.processing_vlm import BatchedVLChatProcessorOutput
 from janus.utils.io import load_pil_images
 
 # specify the path to the model
@@ -31,7 +34,7 @@ tokenizer = vl_chat_processor.tokenizer
 vl_gpt: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(
     model_path, trust_remote_code=True
 )
-vl_gpt = vl_gpt.to(torch.bfloat16).cuda().eval()
+vl_gpt = vl_gpt.to(torch.bfloat16).to("mps").eval()
 
 conversation = [
     {
@@ -43,8 +46,9 @@ conversation = [
 ]
 
 # load images and prepare for inputs
-pil_images = load_pil_images(conversation)
-prepare_inputs = vl_chat_processor(
+pil_images: List[PIL.Image.Image] = load_pil_images(conversation)
+
+prepare_inputs: BatchedVLChatProcessorOutput = vl_chat_processor(
     conversations=conversation, images=pil_images, force_batchify=True
 ).to(vl_gpt.device)
 
