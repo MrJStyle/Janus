@@ -33,12 +33,14 @@ tokenizer = vl_chat_processor.tokenizer
 vl_gpt: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(
     model_path, trust_remote_code=True
 )
-vl_gpt = vl_gpt.to(torch.bfloat16).mps().eval()
+
+device = "mps"
+vl_gpt = vl_gpt.to(torch.bfloat16).to(device).eval()
 
 conversation = [
     {
         "role": "User",
-        "content": "A close-up high-contrast photo of Sydney Opera House sitting next to Eiffel tower, under a blue night sky of roiling energy, exploding yellow stars, and radiating swirls of blue.",
+        "content": "A photo of an edgy woman with long dark hair, wearing sunglasses and a white lace dress, walking down the street in an old brick alleyway. She is looking back over her shoulder at the camera, with a black bag slung across one arm. The image was shot on a Sony Alpha A7 III",
     },
     {"role": "Assistant", "content": ""},
 ]
@@ -57,7 +59,7 @@ def generate(
     vl_chat_processor: VLChatProcessor,
     prompt: str,
     temperature: float = 1,
-    parallel_size: int = 16,
+    parallel_size: int = 1,
     cfg_weight: float = 5,
     image_token_num_per_image: int = 576,
     img_size: int = 384,
@@ -66,15 +68,15 @@ def generate(
     input_ids = vl_chat_processor.tokenizer.encode(prompt)
     input_ids = torch.LongTensor(input_ids)
 
-    tokens = torch.zeros((parallel_size*2, len(input_ids)), dtype=torch.int).cuda()
-    for i in range(parallel_size*2):
+    tokens = torch.zeros((parallel_size * 2, len(input_ids)), dtype=torch.int, device=device)
+    for i in range(parallel_size * 2):
         tokens[i, :] = input_ids
         if i % 2 != 0:
             tokens[i, 1:-1] = vl_chat_processor.pad_id
 
     inputs_embeds = mmgpt.language_model.get_input_embeddings()(tokens)
 
-    generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).cuda()
+    generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int, device=device)
 
     for i in range(image_token_num_per_image):
         outputs = mmgpt.language_model.model(inputs_embeds=inputs_embeds, use_cache=True, past_key_values=outputs.past_key_values if i != 0 else None)
@@ -83,7 +85,8 @@ def generate(
         logits = mmgpt.gen_head(hidden_states[:, -1, :])
         logit_cond = logits[0::2, :]
         logit_uncond = logits[1::2, :]
-        
+
+        # CFG
         logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
         probs = torch.softmax(logits / temperature, dim=-1)
 
@@ -93,7 +96,6 @@ def generate(
         next_token = torch.cat([next_token.unsqueeze(dim=1), next_token.unsqueeze(dim=1)], dim=1).view(-1)
         img_embeds = mmgpt.prepare_gen_img_embeds(next_token)
         inputs_embeds = img_embeds.unsqueeze(dim=1)
-
 
     dec = mmgpt.gen_vision_model.decode_code(generated_tokens.to(dtype=torch.int), shape=[parallel_size, 8, img_size//patch_size, img_size//patch_size])
     dec = dec.to(torch.float32).cpu().numpy().transpose(0, 2, 3, 1)

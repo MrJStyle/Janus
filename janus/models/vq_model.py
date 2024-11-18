@@ -498,12 +498,18 @@ class VQModel(nn.Module):
         return quant, emb_loss, info
 
     def decode(self, quant):
+        # quant: [batch_size, z_channels(256), patch_h_num, patch_w_num]
         quant = self.post_quant_conv(quant)
+        # dec: [batch_size, channels, image_size, img_size]
         dec = self.decoder(quant)
         return dec
 
     def decode_code(self, code_b, shape=None, channel_first=True):
+        # code_b: [batch_size, patch_h_num * patch_w_num] where patch_h_num * patch_w_num is the seq_tokens
+        # quant_b: [batch_size, embedding_size, patch_h_num, patch_w_num]
+        # 通过 codebook 来找到每个 image_token 归一化后的 embedding
         quant_b = self.quantize.get_codebook_entry(code_b, shape, channel_first)
+        # dec: [batch_size, channels, image_size, img_size]
         dec = self.decode(quant_b)
         return dec
 
